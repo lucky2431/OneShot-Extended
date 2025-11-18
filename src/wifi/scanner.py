@@ -1,9 +1,22 @@
-import os
+#  OneShot-Extended (WPS penetration testing utility) is a fork of the tool with extra features
+#  Copyright (C) 2025 chickendrop89
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
 import re
 import csv
 import codecs
 import subprocess
 
+from typing import Union
 from src.utils import REPORTS_DIR
 
 import src.args
@@ -45,7 +58,7 @@ class WiFiScanner:
         networks = self._iwScanner()
 
         if not networks:
-            print('[-] No WPS networks found.')
+            print('[!] No WPS networks found.')
             return
 
         while True:
@@ -64,12 +77,13 @@ class WiFiScanner:
             except IndexError:
                 print('Invalid number')
 
-    def _iwScanner(self) -> dict[int, dict] | bool:
+    def _iwScanner(self) -> Union[dict[int, dict], bool]:
         """Parsing iw scan results."""
 
         def handleNetwork(_line, result, networks):
             networks.append(
                 {
+                    'ESSID': '',
                     'Security type': 'Unknown',
                     'WPS': False,
                     'WPS version': '1.0',
@@ -160,9 +174,12 @@ class WiFiScanner:
         }
 
         command = ['iw', 'dev', f'{self.INTERFACE}', 'scan']
-        iw_scan_process = subprocess.run(command,
-            encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-        )
+        try:
+            iw_scan_process = subprocess.run(command,
+                encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as error:
+            return print (f'[!] Failed to perform an iw scan: \n {error}')
 
         lines = iw_scan_process.stdout.splitlines()
 
@@ -191,7 +208,7 @@ class WiFiScanner:
         network_list = {(i + 1): network for i, network in enumerate(networks)}
         network_list_items = list(network_list.items())
 
-        def truncateStr(s: str, length: int, postfix='…') -> str:
+        def truncateStr(s: Union[str, None], length: int, postfix='…') -> str:
             """Truncate string with the specified length."""
 
             if len(s) > length:
@@ -228,7 +245,7 @@ class WiFiScanner:
         def entryMaxLength(item: str, max_length=27) -> int:
             """Calculates max length of network_list_items entry"""
 
-            lengths = [len(entry[1][item]) for entry in network_list_items]
+            lengths = [len(entry[1].get(item, '')) for entry in network_list_items]
             return min(max(lengths), max_length) + 1
 
         # Used to calculate the max width of a collum in the network list table
@@ -251,10 +268,11 @@ class WiFiScanner:
         if args.reverse_scan:
             network_list_items = network_list_items[::-1]
         for n, network in network_list_items:
-            number = f'{n})'
-            model = f'{network['Model']} {network['Model number']}'
+            # (FOR COMPATIBILITY) pylint: disable=inconsistent-quotes
+            model = f'{network["Model"]} {network["Model number"]}'
             essid = truncateStr(network['ESSID'], 25)
             device_name = truncateStr(network['Device name'], 27)
+            number = f'{n})'
             line = row.format(
                 number, network['BSSID'], essid,
                 network['Security type'], network['Level'],

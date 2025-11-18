@@ -1,3 +1,16 @@
+#  OneShot-Extended (WPS penetration testing utility) is a fork of the tool with extra features
+#  Copyright (C) 2025 chickendrop89
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
 import argparse
 import os
 
@@ -23,7 +36,7 @@ def parseArgs():
     parser.add_argument(
         '-p', '--pin',
         type=str,
-        help='Use the specified pin (arbitrary string or 4/8 digit pin)'
+        help='Use the specified pin (arbitrary string or 4/8 digit pin). Enter a blank pin (e.g. \'\') for a Null Pin attack'
     )
     parser.add_argument(
         '-K', '--pixie-dust',
@@ -97,6 +110,12 @@ def parseArgs():
         help='Activate MediaTek Wi-Fi interface driver on startup and deactivate it on exit '
              '(for internal Wi-Fi adapters implemented in MediaTek SoCs). '
              'Turn off Wi-Fi in the system settings before using this.'
+    )
+    parser.add_argument(
+        '--dts', '--dont-touch-settings',
+        action='store_true',
+        help='Don\'t touch the Android Wi-Fi settings on startup and exit. '
+             'Use when having device-specific issues'
     )
     parser.add_argument(
         '-v', '--verbose',

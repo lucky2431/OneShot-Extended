@@ -1,3 +1,16 @@
+#  OneShot-Extended (WPS penetration testing utility) is a fork of the tool with extra features
+#  Copyright (C) 2025 chickendrop89
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
 import os
 import subprocess
 import csv
@@ -37,15 +50,22 @@ class WiFiCollector:
 
         # Detect an android system
         if src.utils.isAndroid() is True:
-            # The Wi-Fi scanner needs to be active in order to add network
-            self.ANDROID_NETWORK.enableWifi(force_enable=True, whisper=True)
-            subprocess.run(android_connect_cmd, check=True)
+            try:
+                # The Wi-Fi scanner needs to be active in order to add network
+                self.ANDROID_NETWORK.enableWifi(force_enable=True, whisper=True)
+                subprocess.run(android_connect_cmd, check=True)
+            except subprocess.CalledProcessError as error:
+                return print(f'[!] Failed to add network to Android network manager: \n {error}')
 
         # Detect NetworkManager
         elif which('nmcli'):
-            subprocess.run(networkmanager_connect_cmd, check=True)
+            try:
+                subprocess.run(networkmanager_connect_cmd, check=True)
+            except subprocess.CalledProcessError as error:
+                return print(f'[!] Failed to add network to NetworkManager: \n {error}')
 
-        print('[+] Access Point was saved to your network manager')
+
+        print('[*] Access Point was saved to your network manager')
 
     @staticmethod
     def writeResult(bssid: str, essid: str, wps_pin: str, wpa_psk: str):
@@ -76,7 +96,7 @@ class WiFiCollector:
 
             csv_writer.writerow([date_str, bssid, essid, wps_pin, wpa_psk])
 
-        print(f'[+] Credentials saved to {filename}.txt, {filename}.csv')
+        print(f'[*] Credentials saved to {filename}.txt, {filename}.csv')
 
     @staticmethod
     def writePin(bssid: str, pin: str):
@@ -88,4 +108,4 @@ class WiFiCollector:
         with open(filename, 'w', encoding='utf-8') as file:
             file.write(pin)
 
-        print(f'[+] PIN saved in {filename}')
+        print(f'[*] PIN saved in {filename}')

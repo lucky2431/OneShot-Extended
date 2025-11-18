@@ -1,4 +1,19 @@
+#  OneShot-Extended (WPS penetration testing utility) is a fork of the tool with extra features
+#  Copyright (C) 2025 chickendrop89
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
 import subprocess
+
+from typing import Union
 
 class Data:
     """Stored data used for pixiewps command."""
@@ -17,7 +32,7 @@ class Data:
         return (self.PKE and self.PKR and self.E_NONCE and self.AUTHKEY
                 and self.E_HASH1 and self.E_HASH2)
 
-    def runPixieWps(self, show_command: bool = False, full_range: bool = False) -> str | bool:
+    def runPixieWps(self, show_command: bool = False, full_range: bool = False) -> Union[str, bool]:
         """Runs the pixiewps and attempts to extract the WPS pin from the output."""
 
         print('[*] Running Pixiewps…')
@@ -27,9 +42,13 @@ class Data:
             # Convert the command array into a string
             print(' '.join(command))
 
-        command_output = subprocess.run(command,
-            encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-        )
+        try:
+            command_output = subprocess.run(command,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                encoding='utf-8'
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as error:
+            return print(f'[!] Pixiewps has exited on error: \n {error}')
 
         print(command_output.stdout)
 

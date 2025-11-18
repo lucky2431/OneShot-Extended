@@ -1,8 +1,22 @@
+#  OneShot-Extended (WPS penetration testing utility) is a fork of the tool with extra features
+#  Copyright (C) 2025 chickendrop89
+#
+#  This program is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU General Public License
+#  as published by the Free Software Foundation; either version 2
+#  of the License, or (at your option) any later version.
+#
+#  This program is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+
 import collections
 import statistics
 import time
 
 from datetime import datetime
+from typing import Union
 
 import src.wps.generator
 import src.wps.connection
@@ -65,7 +79,7 @@ class Initialize:
             interface
         )
 
-    def _firstHalfBruteforce(self, bssid: str, first_half: str, delay: float = None) -> str | bool:
+    def _firstHalfBruteforce(self, bssid: str, first_half: str, delay: float = None) -> Union[str, bool]:
         """Attempts to bruteforce the first half of a WPS PIN"""
 
         checksum = self.GENERATOR.checksum
@@ -77,7 +91,7 @@ class Initialize:
             self.CONNECTION.singleConnection(bssid, pin)
 
             if self.CONNECTION_STATUS.isFirstHalfValid():
-                print('[+] First half found')
+                print('[*] First half found')
                 return first_half
 
             if self.CONNECTION_STATUS.STATUS == 'WPS_FAIL':
@@ -93,7 +107,7 @@ class Initialize:
         print('[-] First half not found')
         return False
 
-    def _secondHalfBruteforce(self, bssid: str, first_half: str, second_half: str, delay: float = None) -> str | bool:
+    def _secondHalfBruteforce(self, bssid: str, first_half: str, second_half: str, delay: float = None) -> Union[str, bool]:
         """Attempts to bruteforce the second half of a WPS PIN"""
 
         checksum = self.GENERATOR.checksum
@@ -157,7 +171,7 @@ class Initialize:
 
             with open(filename, 'w', encoding='utf-8') as file:
                 file.write(self.BRUTEFORCE_STATUS.MASK)
-            print(f'[+] Session saved in {filename}')
+            print(f'[*] Session saved in {filename}')
 
             if args.loop:
                 raise KeyboardInterrupt from e
